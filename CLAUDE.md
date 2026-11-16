@@ -3,7 +3,7 @@
 ## Git workflow (the owner's standing instruction)
 
 - **Always commit and push** every change when the work is done; don't wait to be asked.
-- Work on a descriptively named feature branch, push it, and give the owner the pull-request link (`https://github.com/johnwalkr/vaporwave-endless-3d/pull/new/<branch>`).
+- Commit and push **directly to `main`**: no feature branches or pull requests.
 - Commit author email must be `johnwalkr@users.noreply.github.com`; GitHub rejects pushes that expose a private address.
 
 ## Building and checking
