@@ -1,4 +1,4 @@
-name: Build Windows exe
+name: Build iOS app
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -15,13 +15,22 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: Vet (Windows target)
-        run: GOOS=windows GOARCH=amd64 go vet .
+      - name: Go checks (shaders in sync, iOS core)
+        run: |
+          go vet .
+          go test -run 'TestMetalShaders|TestMobileFacade' -v .
 
-      - name: Build vaporwave-endless-3d.exe
-        run: GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" -o vaporwave-endless-3d.exe .
+      - name: Build Go core for iOS
+        run: ios/build-go.sh
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: vaporwave-endless-3d-windows
-          path: vaporwave-endless-3d.exe
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+
+      - name: Build app for the simulator (unsigned)
+        run: |
+          cd ios
+          xcodebuild -project VaporwaveEndless3D.xcodeproj -target VaporwaveEndless3D \
+            -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -60
+          test ${PIPESTATUS[0]} -eq 0

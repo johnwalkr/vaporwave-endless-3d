@@ -1,0 +1,50 @@
+# XcodeGen spec: `xcodegen generate` (or ./setup.sh) writes VaporwaveEndless3D.xcodeproj.
+name: VaporwaveEndless3D
+options:
+  bundleIdPrefix: com.johnwalkr
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: ""          # pick your team in Xcode > Signing & Capabilities
+    CODE_SIGN_STYLE: Automatic
+targets:
+  VaporwaveEndless3D:
+    type: application
+    platform: iOS
+    scheme: {}
+    sources:
+      - path: App
+    dependencies:
+      - framework: Generated/VE3DCore.xcframework
+        embed: false
+    preBuildScripts:
+      - name: Build Go core
+        script: '"$SRCROOT/build-go.sh"'
+        basedOnDependencyAnalysis: false
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Vaporwave 3D
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+    settings:
+      base:
+        PRODUCT_NAME: VaporwaveEndless3D
+        PRODUCT_BUNDLE_IDENTIFIER: com.johnwalkr.vaporwave-endless-3d
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: App/BridgingHeader.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Generated/include
+        OTHER_LDFLAGS: ["-framework", "CoreFoundation", "-lresolv"]
+        ENABLE_BITCODE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        DEAD_CODE_STRIPPING: YES

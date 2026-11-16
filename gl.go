@@ -1,4 +1,4 @@
-package main
+package vaporwave
 
 // OpenGL 3.3 renderer. Sky, floor and post-processing run as fragment
 // shaders; props, terrain and lines are projected on the CPU (shared with
@@ -354,7 +354,7 @@ func (g *GLR) bindTex(unit int, tex uint32) {
 // (iw*ih pixels, 0x00RRGGBB text or 0xAA000000 for a darkened panel) into
 // the framebuffer fbo of size ow x oh.
 func (g *GLR) Frame(rd *Rd, hud []uint32, ow, oh int, fbo uint32) error {
-	fb, fr, sc := &rd.fb, rd.fr, rd.sc
+	fb := &rd.fb
 	iw, ih := fb.W, fb.H
 	if err := g.target(&g.scene, iw, ih, glRGBA16F, glHalfFloat, glNearest, true); err != nil {
 		return err
@@ -443,10 +443,10 @@ func (g *GLR) Frame(rd *Rd, hud []uint32, ow, oh int, fbo uint32) error {
 	if hasHud == 0 {
 		g.bindTex(2, g.bloom[0].tex)
 	}
-	fx := rd.Effects()
-	g.vec = [12]float32{sc.P.Bloom * fx.Bloom, fr.Glitch, fr.Flash, 0, float32(iw), float32(ih), 0, 0, fx.Scan, fx.Grain, fx.CA, fx.Track}
+	cp, cf := rd.CompParams(hasHud == 1)
+	g.vec = cp
 	g.c(g.f.Uniform4fv, uintptr(g.locCompP), 3, p(unsafe.Pointer(&g.vec[0])))
-	g.scratch[0], g.scratch[1] = fr.N, hasHud
+	g.scratch[0], g.scratch[1] = cf[0], cf[1]
 	g.c(g.f.Uniform4uiv, uintptr(g.locCompF), 1, p(unsafe.Pointer(&g.scratch[0])))
 	g.draw3()
 
@@ -541,10 +541,17 @@ func b2f(b bool) float32 {
 	return 0
 }
 
-func (g *GLR) pack(rd *Rd) {
+func (g *GLR) pack(rd *Rd) { g.ui = rd.PackParams(g.params[:]) }
+
+// NParams is the number of float4 shader parameters PackParams writes.
+const NParams = nParams
+
+// PackParams writes the sky/floor shader parameters (NParams float4s) into P
+// and returns the integer parameters. Shared by the OpenGL and Metal renderers.
+func (rd *Rd) PackParams(P []float32) [4]uint32 {
 	sc, fr := rd.sc, rd.fr
 	pl := &sc.P
-	P := g.params[:]
+	P = P[:nParams*4]
 	for i := range P {
 		P[i] = 0
 	}
@@ -599,7 +606,19 @@ func (g *GLR) pack(rd *Rd) {
 		setv(pNeb+i*2, sc.Nebula[i].Dir, 0)
 		setc(pNeb+i*2+1, sc.Nebula[i].C, 0)
 	}
-	g.ui = [4]uint32{sc.Seed, rd.halfBeat, uint32(rd.zCell), fr.N}
+	return [4]uint32{sc.Seed, rd.halfBeat, uint32(rd.zCell), fr.N}
+}
+
+// CompParams returns the composite (VHS/tone) pass parameters.
+func (rd *Rd) CompParams(hasHud bool) ([12]float32, [4]uint32) {
+	fx := rd.Effects()
+	fr, sc := rd.fr, rd.sc
+	h := uint32(0)
+	if hasHud {
+		h = 1
+	}
+	return [12]float32{sc.P.Bloom * fx.Bloom, fr.Glitch, fr.Flash, 0, float32(rd.fb.W), float32(rd.fb.H), 0, 0, fx.Scan, fx.Grain, fx.CA, fx.Track},
+		[4]uint32{fr.N, h, 0, 0}
 }
 
 // ---------------------------------------------------------------------------
@@ -616,30 +635,32 @@ uint hashu(uint a,uint b,uint c){
 }
 `
 
+// bgDefs names every sky/floor shader parameter (shared with the Metal header).
+var bgDefs = []struct {
+	n string
+	i int
+	s string
+}{
+	{"TOP", pTop, "rgb"}, {"MIDC", pMid, "rgb"}, {"HOR", pHor, "rgb"}, {"SUNT", pSunT, "rgb"}, {"SUNB", pSunB, "rgb"},
+	{"LINEC", pLine, "rgb"}, {"ACC", pAcc, "rgb"}, {"FLOORC", pFloor, "rgb"}, {"TILE", pTile, "rgb"},
+	{"GLOWC", pGlow, "rgb"}, {"GLOWAMT", pGlow, "w"}, {"FOGC", pFogC, "rgb"},
+	{"SUNDIR", pSun, "xyz"}, {"SUNR", pSun, "w"}, {"SUNCOS", pSunP, "x"}, {"STRIPES", pSunP, "y"}, {"SCROLL", pSunP, "z"}, {"SUNKIND", pSunP, "w"},
+	{"MOONDIR", pMoon, "xyz"}, {"MOONR", pMoon, "w"}, {"MOON2", pMoon2, "xyz"}, {"MOONKIND", pMoon2, "w"},
+	{"CAMP", pCamP, "xyz"}, {"INVF", pCamP, "w"}, {"CAMR", pCamR, "xyz"}, {"CX", pCamR, "w"},
+	{"CAMU", pCamU, "xyz"}, {"CY", pCamU, "w"}, {"CAMF", pCamF, "xyz"}, {"PXANG", pCamF, "w"},
+	{"KICK", pMisc, "x"}, {"TIME", pMisc, "y"}, {"BT", pMisc, "z"}, {"WAVE", pMisc, "w"},
+	{"FLOORTYPE", pFlr, "x"}, {"GSZ", pFlr, "y"}, {"LINEHALF", pFlr, "z"}, {"GLOSS", pFlr, "w"},
+	{"PH1", pPh, "x"}, {"PH2", pPh, "y"}, {"PH3", pPh, "z"}, {"HALFFRAC", pPh, "w"},
+	{"FSPACE", pFlags, "x"}, {"FFULL", pFlags, "y"}, {"FBH", pFlags, "z"}, {"FOGMUL", pFlags, "w"},
+	{"BHR", pBH, "x"}, {"TUN", pBH, "y"}, {"RINGW", pBH, "z"}, {"NRINGSF", pBH, "w"},
+	{"RINGN", pRingN, "xyz"}, {"NBODIESF", pRingN, "w"}, {"RINGC", pRingC, "rgb"}, {"NNEBF", pRingC, "w"},
+	{"GALN", pGalN, "xyz"},
+}
+
 func bgFS() string {
-	defs := []struct {
-		n string
-		i int
-		s string
-	}{
-		{"TOP", pTop, "rgb"}, {"MIDC", pMid, "rgb"}, {"HOR", pHor, "rgb"}, {"SUNT", pSunT, "rgb"}, {"SUNB", pSunB, "rgb"},
-		{"LINEC", pLine, "rgb"}, {"ACC", pAcc, "rgb"}, {"FLOORC", pFloor, "rgb"}, {"TILE", pTile, "rgb"},
-		{"GLOWC", pGlow, "rgb"}, {"GLOWAMT", pGlow, "w"}, {"FOGC", pFogC, "rgb"},
-		{"SUNDIR", pSun, "xyz"}, {"SUNR", pSun, "w"}, {"SUNCOS", pSunP, "x"}, {"STRIPES", pSunP, "y"}, {"SCROLL", pSunP, "z"}, {"SUNKIND", pSunP, "w"},
-		{"MOONDIR", pMoon, "xyz"}, {"MOONR", pMoon, "w"}, {"MOON2", pMoon2, "xyz"}, {"MOONKIND", pMoon2, "w"},
-		{"CAMP", pCamP, "xyz"}, {"INVF", pCamP, "w"}, {"CAMR", pCamR, "xyz"}, {"CX", pCamR, "w"},
-		{"CAMU", pCamU, "xyz"}, {"CY", pCamU, "w"}, {"CAMF", pCamF, "xyz"}, {"PXANG", pCamF, "w"},
-		{"KICK", pMisc, "x"}, {"TIME", pMisc, "y"}, {"BT", pMisc, "z"}, {"WAVE", pMisc, "w"},
-		{"FLOORTYPE", pFlr, "x"}, {"GSZ", pFlr, "y"}, {"LINEHALF", pFlr, "z"}, {"GLOSS", pFlr, "w"},
-		{"PH1", pPh, "x"}, {"PH2", pPh, "y"}, {"PH3", pPh, "z"}, {"HALFFRAC", pPh, "w"},
-		{"FSPACE", pFlags, "x"}, {"FFULL", pFlags, "y"}, {"FBH", pFlags, "z"}, {"FOGMUL", pFlags, "w"},
-		{"BHR", pBH, "x"}, {"TUN", pBH, "y"}, {"RINGW", pBH, "z"}, {"NRINGSF", pBH, "w"},
-		{"RINGN", pRingN, "xyz"}, {"NBODIESF", pRingN, "w"}, {"RINGC", pRingC, "rgb"}, {"NNEBF", pRingC, "w"},
-		{"GALN", pGalN, "xyz"},
-	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "#version 330 core\nuniform vec4 U[%d];\nuniform uvec4 UI;\nout vec4 o;\n", nParams)
-	for _, d := range defs {
+	for _, d := range bgDefs {
 		fmt.Fprintf(&b, "#define %s U[%d].%s\n", d.n, d.i, d.s)
 	}
 	fmt.Fprintf(&b, "#define RINGS %d\n#define RAMP %d\n#define BODY %d\n#define NEB %d\n#define FARD %d.0\n", pRings, pRAmp, pBody, pNeb, farDist)

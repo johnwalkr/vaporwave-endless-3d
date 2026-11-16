@@ -1,6 +1,6 @@
-//go:build !windows
+//go:build !windows && !ios
 
-package main
+package vaporwave
 
 import (
 	"encoding/binary"
@@ -15,7 +15,8 @@ import (
 )
 
 // Offline test harness: renders frames to PNG and audio to WAV.
-func main() {
+// RunHarness is the offline test tool (frames to PNG, audio to WAV); see cmd/ve3d-test.
+func RunHarness() {
 	seed := flag.Uint("seed", 1, "first seed")
 	count := flag.Int("n", 4, "number of scenes")
 	out := flag.String("out", "/tmp/ve3d", "output dir")

@@ -1,4 +1,4 @@
-package main
+package vaporwave
 
 import (
 	"math"
@@ -874,9 +874,23 @@ func (e *Engine) Chime() {
 
 // Fill renders interleaved stereo 16-bit frames.
 func (e *Engine) Fill(out []int16) {
+	e.fill(len(out)/2, func(i int, l, r float64) {
+		out[2*i] = int16(clampF(l, -1, 1) * 30000)
+		out[2*i+1] = int16(clampF(r, -1, 1) * 30000)
+	})
+}
+
+// FillF32 renders into separate float channels (used by the iOS audio engine).
+func (e *Engine) FillF32(left, right []float32) {
+	e.fill(min(len(left), len(right)), func(i int, l, r float64) {
+		left[i] = float32(clampF(l, -1, 1) * 0.92)
+		right[i] = float32(clampF(r, -1, 1) * 0.92)
+	})
+}
+
+func (e *Engine) fill(n int, put func(i int, l, r float64)) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	n := len(out) / 2
 	cp := checkpoint{out0: e.outTotal, src0: e.src + e.frac, n: n, gen: e.gen}
 	if e.cur != nil {
 		cp.b0 = e.cur.beat
@@ -913,8 +927,7 @@ func (e *Engine) Fill(out []int16) {
 		e.vol += (vt - e.vol) * 0.002
 		l := (e.pl + (e.cl-e.pl)*e.frac) * e.vol
 		rr := (e.pr + (e.cr-e.pr)*e.frac) * e.vol
-		out[2*i] = int16(clampF(l, -1, 1) * 30000)
-		out[2*i+1] = int16(clampF(rr, -1, 1) * 30000)
+		put(i, l, rr)
 	}
 	cp.src1 = e.src + e.frac
 	cp.b1 = cp.b0

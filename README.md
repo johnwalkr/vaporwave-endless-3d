@@ -1,48 +1,29 @@
-# Vaporwave Endless 3D
+# Vaporwave Endless 3D for iPhone and iPad
 
-A small Windows program that generates endless 3D vaporwave and space-travel scenes, each with its own procedurally synthesized soundtrack locked to the visuals. Press **Tab** for a new scene and track.
+> **This is the `ios` branch.** It holds the native iOS app. The Windows program lives on the `main` branch; the two are maintained separately (see "Branches" below).
 
-It is a single ~2.5 MB `.exe` with no installer, no runtime and no external assets: every image and every sound is generated in code while it runs.
+A native iOS app that generates endless 3D vaporwave and space-travel scenes, each with its own procedurally synthesized soundtrack locked to the visuals. Everything is rendered on the GPU with Metal; every image and every sound is generated in code while it runs, with no assets.
 
 ---
 
 ## Controls
 
-| Input | Effect |
+| Touch | Effect |
 |---|---|
-| Enter | **Game mode** (see below) |
-| Tab | New scene + new track |
-| Space | Switch between vaporwave and space travel |
-| W / S (or ↑ / ↓) | Tape speed: music and travel slow down or speed up together |
-| A / D (or ← / →) | Strafe |
-| Mouse | Look around |
-| Left click | Shockwave on the floor + a chime in key |
-| Right click | Recolour the current vaporwave scene |
-| Mouse wheel | Altitude |
-| O or F1 | Settings menu (audio + video) |
-| G | GPU renderer on/off |
-| F / F11 / Alt+Enter | Fullscreen |
-| F2 | FPS counter on/off (frame rate, frame time, render resolution) |
-| R / M / P / H | Reset / mute / screenshot / help |
-| Esc | Quit |
+| Drag (one finger) | Look around |
+| Tap | Shockwave across the floor + a chime in key |
+| Double-tap | New scene + new track |
+| Touch and hold | Recolour the current vaporwave scene |
+| Two-finger drag left / right | Slide sideways |
+| Two-finger drag up / down | Tape speed: music and travel speed up or slow down together |
+| Pinch | Altitude |
+| ⤨ button | New scene + new track |
+| ✦ button | Switch between vaporwave and space travel |
+| Sliders button | Settings (music, audio mix, render scale, bloom, VHS effects, FPS counter) |
 
-Command-line options: `-cpu` forces the software renderer, and `-selftest` runs a short automated pass that writes `vaporwave-endless-3d_selftest.txt` and screenshots next to the exe.
+The app runs in landscape. **Render scale** in settings trades sharpness for battery and frame rate: 67% is the default, 100% renders at the screen's full resolution.
 
-### Game mode (Enter)
-
-You fly a spacecraft (WASD or arrow keys) through neon rings. There is no objective, score to beat or boss.
-
-1. **Flight.** Every ring you pass makes one small change to the world (colours, the sun, the floor, props, gates) and pushes the tempo up. Along the way the drums and melody build up and the style shifts. The tempo also creeps upward on its own, so things get more intense whether or not you hit rings.
-2. **Boom.** When the music reaches 250 BPM, everything explodes.
-3. **Chill.** 30 seconds of calm, floating in a nebula.
-4. **Create.** From now on, every action makes music and changes the level:
-   - **WASD** each play a note (W/S jump up/down, A/D step) that is quantised to the beat and recorded into a two-bar loop, and leave a glowing crystal in the world.
-   - **Rings** add drums, switch style and, every fourth ring, move you to a new world.
-   - **Click** for new chords and colours, **Space** to drop the drums in or out, **mouse wheel** for tempo, **Backspace** to clear your loop.
-
-Press Enter again to leave the game.
-
-### Music settings (in the settings menu)
+### Music settings
 
 | Setting | Options |
 |---|---|
@@ -65,13 +46,14 @@ Changing any of these remixes the current track immediately; "New track for this
 | Lo-fi hip hop | swung boom-bap | long sub notes | Rhodes chords | soft sine / bell |
 | Synthwave | gated-reverb snare | driving 8th-note synth bass | 16th arpeggiator + big pads | saw lead |
 
-Settings are saved to `vaporwave-endless-3d_settings.ini` next to the exe (or `%APPDATA%\Vaporwave Endless 3D\` if that folder isn't writable).
+
+Settings are saved in the app's Documents folder.
 
 ---
 
 ## How it was made
 
-Vaporwave Endless 3D was written in Go with Claude (Anthropic's AI model) in a single conversation. It was built and tested on Linux and cross-compiled for Windows. It is written against the raw Win32 API through Go's `syscall` package, so it has **no dependencies outside the Go standard library** and needs no C compiler for Windows.
+Vaporwave Endless 3D was written with Claude (Anthropic's AI model). The scene, music and camera code is shared Go (the same code as the Windows version); iOS gets it as a static library, and a small Swift app draws it with Metal and plays the audio.
 
 ### Architecture
 
@@ -82,93 +64,69 @@ Vaporwave Endless 3D was written in Go with Claude (Anthropic's AI model) in a s
             └───────┬───────────────────────┬────────┘
                     │                       │
               Synth / Engine           Scene + Frame
-        (audio thread, waveOut)   (kick/snare/melody envelopes
+        (audio thread, AVAudioEngine)   (kick/snare/melody envelopes
                     │               read at the *heard* beat)
                     │                       │
    playback position ──► beat ──► camera Z, pulses, flashes
                                             │
                            ┌────────────────┴───────────────┐
-                     CPU renderer                     GPU renderer
-                 (software rasterizer)              (OpenGL 3.3)
+                     Go: geometry +                 Metal (Swift)
+                 shader parameters ───────────► all shading on the GPU
 ```
 
-**Audio is the clock.** The engine records which song sample went into each output buffer. Every frame, the program asks Windows how far playback has actually got (`waveOutGetPosition`), converts that to a beat position, and places the camera there. That's why grid lines, gates and prop rows pass exactly on the beat, and why the tape-speed control (which resamples the audio) slows the visuals by the same amount.
+**Audio is the clock.** The engine records which song sample went into each output buffer. Every frame, the app subtracts the audio output latency that iOS reports from the samples rendered so far, smooths that against the frame clock, converts it to a beat position, and places the camera there. That's why grid lines, gates and prop rows pass exactly on the beat, and why the tape-speed control (which resamples the audio) slows the visuals by the same amount.
+
+**One renderer, two GPU APIs.** On Windows the GPU renderer is OpenGL; on iOS it is Metal. The Metal shaders (`ios/App/Shaders.metal`) are *generated* from the OpenGL ones in `gl.go` by `MetalShaders()` in `metalparams.go`, and a test fails if they drift apart, so the iPhone shades sky, floor, bloom and VHS effects exactly like the desktop GPU renderer.
 
 ### Source files
 
 | File | What it does |
 |---|---|
-| `song.go` | Deterministic, style-aware song generator: eight styles, each with its own tempo range, chord progressions (7ths through 13ths), drum grooves with swing, bass lines (including walking bass), chord comping and lead instrument; drum intensity, tempo, mood and melody-density options; fills, crashes and breakdowns. Exposes per-beat envelopes so visuals can react. |
-| `synth.go` | The synthesizer: detuned PolyBLEP saw pads (optionally chopped), FM Rhodes, plucks and bells, four bass instruments (sub, upright, filtered saw, slap), double-tracked distorted guitar, mono leads (saw, sine, sax, overdriven guitar, square pluck), three kicks, four snares (incl. brushes and gated reverb), clap, hats, ride and crash from an inharmonic oscillator bank, ping-pong delay, Freeverb-style reverb, tape hiss and vinyl crackle, sidechain ducking. `Engine` handles variable-speed playback, wow/flutter, cross-fades between songs, and the sample→beat map. |
-| `settings.go` | Saved settings, audio presets, the mix model and post-processing (FX) settings. |
-| `scene.go` | Vaporwave scene generator: 10 base palettes with hue variation, 4 floor types, sun/moon/stars, skyline backdrops, prop avenues, neon gates. Also the player and per-frame state. |
-| `game.go`, `game_draw.go` | Game mode: flight, rings, the 250 BPM explosion, the chill phase and create mode; the ship, rings, debris and note crystals. |
-| `space.go` | Space-travel mode: deep space, black holes (accretion disc, swallow, wormhole), all eight solar-system planets and eight original worlds, plus rocks, pines, ice spikes and towers. |
-| `raster.go` | Software rasterizer: triangles and antialiased lines recorded as a display list, then drawn in parallel row bands; HDR framebuffer; bloom, chromatic aberration, scanlines, tracking bar, grain and VHS glitches. In GPU mode the same code records vertices instead. |
-| `render.go` | Camera, per-pixel sky and floor shading (grid, checkerboard, water reflections, valley), backdrops, terrain. |
-| `props.go` | Palms, marble columns, crystals, wireframe spheres and cubes, Windows-95 panels, neon gates. |
-| `gl.go` | GPU renderer: sky/floor and all post-processing as GLSL shaders, with geometry from the shared display list. Every GL call goes through integer/pointer arguments only, so the same code runs via `syscall` on Windows and via a small cgo trampoline in Linux tests. |
-| `gl_windows.go` | OpenGL context creation (WGL) in a child window, VSync, function loading. |
-| `main_windows.go` | The Windows program: window, input, settings menu, HUD (GDI text), audio devices and latency, renderer switching, screenshots, self-test. |
-| `main_other.go` | Non-Windows test harness: renders scenes to PNG and audio to WAV, prints timing and audio statistics, and compares the GPU renderer against the CPU renderer. |
-| `gl_cgo_linux.go`, `gl_stub.go`, `hud_gl_test.go` | Headless OpenGL (Mesa/EGL) backend and tests for the harness. |
-
-### How it was tested
-
-Without a Windows machine, everything except the Win32 layer was tested on Linux:
-
-- **Visuals:** the harness rendered still frames of every scene type, which were inspected for errors. The software renderer runs at about 11–25 ms per 800×600 frame on two cores.
-- **GPU renderer:** run headlessly on Mesa's llvmpipe and compared pixel-by-pixel against the CPU renderer across 28 scenes. The average difference was about 2.5/255, mostly film grain, and at most 0.05% of pixels differed by more than 40/255. A unit test checks that the HUD/menu overlay is drawn the right way up and darkens correctly.
-- **Audio:** each preset was rendered to WAV and measured for peak level, clipping, spectral brightness and stereo width. The synth uses about 2% of one core.
+| `song.go`, `synth.go`, `settings.go` | Song generator (eight styles), synthesizer and engine, settings and mix model. Shared with Windows. |
+| `scene.go`, `space.go`, `render.go`, `props.go`, `raster.go` | Vaporwave and space scenes, camera, props and the display list of geometry. Shared with Windows. |
+| `gl.go` | The OpenGL renderer and its shaders: the source the Metal shaders are generated from. Also packs the shader parameters both renderers use. |
+| `mobile.go` | The iOS-facing core: scenes, touch input, the settings menu, audio-synced timing and per-frame render data. |
+| `metalparams.go` | Generates `ios/App/Shaders.metal` from the GLSL shaders. |
+| `capi/main.go` | The C API (`ve3d_*` functions) that Swift calls, built with `-buildmode=c-archive`. |
+| `ios/App/*.swift` | SwiftUI app and HUD, Metal renderer, AVAudioEngine output, touch gestures. |
+| `ios/project.yml`, `ios/setup.sh`, `ios/build-go.sh` | Xcode project spec (XcodeGen) and build scripts. |
+| `game.go`, `game_draw.go` | Game mode from the Windows version. Not used by the iOS app; kept so shared code merges cleanly. |
+| `main_other.go`, `cmd/ve3d-test` | Linux test harness: renders scenes to PNG and audio to WAV, compares the GPU and CPU renderers. |
 
 ---
 
-## Compiling for Windows
+## Building the iOS app
 
-You need **Go 1.24 or newer** (<https://go.dev/dl/>). No C compiler, SDK or extra packages are required.
-
-### On Windows
-
-```bat
-cd vaporwave-endless-3d
-go build -ldflags="-s -w -H windowsgui" -o vaporwave-endless-3d.exe .
-```
-
-### From Linux or macOS (cross-compile)
+You need a Mac with **Xcode 15 or newer**, **Go 1.24 or newer** and **Homebrew**.
 
 ```sh
-cd vaporwave-endless-3d
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" -o vaporwave-endless-3d.exe .
+brew install go xcodegen      # once
+git clone -b ios https://github.com/johnwalkr/vaporwave-endless-3d.git
+cd vaporwave-endless-3d/ios
+./setup.sh                    # builds the Go core, generates and opens the Xcode project
 ```
 
-For Windows on ARM, use `GOARCH=arm64`.
+Then in Xcode:
 
-Build flags:
+1. Select the **VaporwaveEndless3D** target → **Signing & Capabilities** → choose your **Team** (a free Apple ID works for your own devices). If the bundle identifier is taken, change it to something unique.
+2. Pick your iPhone (or a simulator) as the run destination and press **Run** (⌘R).
+3. The first time on a device, allow it under iPhone **Settings → General → VPN & Device Management**.
 
-- `-H windowsgui` makes it a GUI program (no console window). Leave it out if you want a console for debugging output.
-- `-s -w` strips debug symbols, roughly halving the file size.
+Xcode re-runs `build-go.sh` before every build, so edits to the Go code are picked up automatically. If you change `project.yml` or add Swift files, run `xcodegen generate` in `ios/` again. The `Generated/` folder, the `.xcodeproj` and `Info.plist` are build outputs and are not committed.
 
-Requirements at runtime: Windows 7 or newer, 64-bit. GPU mode needs an OpenGL 3.3 driver (any GPU from about 2010 onward); without one, the program falls back to the CPU renderer.
+If you change any shader in `gl.go`, regenerate the Metal shaders with `UPDATE_SHADERS=1 go test -run TestMetalShaders .`
 
 ### Automatic builds
 
-Every push to GitHub builds the Windows exe with GitHub Actions (`.github/workflows/build.yml`). To download it, open the repository's **Actions** tab, click the latest run, and get `vaporwave-endless-3d-windows` under **Artifacts**.
-
-### Running the test harness (Linux)
-
-```sh
-go build -o ve3d_test .
-./ve3d_test -seed 1 -n 4 -out /tmp/frames             # render 4 vaporwave scenes to PNG
-./ve3d_test -space -seed 0 -n 20 -out /tmp/space      # all 20 space destinations
-./ve3d_test -seed 5 -n 1 -audio 30 -preset 2          # 30 s of audio with the Mallsoft preset -> WAV
-./ve3d_test -gpu -seed 1 -n 8                         # compare GPU vs CPU (needs cgo + Mesa EGL)
-go test .                                              # GPU HUD overlay test
-```
+Every push builds the Go core for iOS and compiles the app for the simulator on a GitHub macOS runner (`.github/workflows/build.yml`), so compile errors show up in the repository's **Actions** tab.
 
 ---
+
+## Branches
+
+- `main`: the Windows program (with game mode).
+- `ios`: this app. The shared Go files (`song.go`, `synth.go`, `scene.go`, `space.go`, `render.go`, `props.go`, `raster.go`, `settings.go`, `gl.go`) are the same code with `package vaporwave` instead of `package main`. To bring a music or scene improvement from `main` over, `git merge main` into `ios` (or cherry-pick the commit); conflicts are usually limited to the package line.
 
 ## Notes
 
 - Scene and planet names are generated or written for this project. The eight non-solar-system worlds are original designs.
-- Screenshots (P) are saved next to the exe as `vaporwave-endless-3d_<seed>_<n>.png`.
-- If the program crashes, it writes `vaporwave-endless-3d_crash.txt` next to the exe.

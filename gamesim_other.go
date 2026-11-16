@@ -1,6 +1,6 @@
-//go:build !windows
+//go:build !windows && !ios
 
-package main
+package vaporwave
 
 import (
 	"encoding/binary"

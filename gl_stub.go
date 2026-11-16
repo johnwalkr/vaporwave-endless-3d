@@ -1,6 +1,6 @@
 //go:build !windows && !(linux && cgo)
 
-package main
+package vaporwave
 
 import "errors"
 
