@@ -1,0 +1,10 @@
+# build outputs
+*.exe
+*.test
+ve3d_test
+fable_test
+# files the program writes next to the exe
+vaporwave-endless-3d_*.ini
+vaporwave-endless-3d_*.txt
+vaporwave-endless-3d_*.png
+vaporwave-endless-3d_*.tmp
