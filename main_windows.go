@@ -217,6 +217,8 @@ type App struct {
 	toast      string
 	toastT     float64
 	remixAt    float64
+	game       *Game
+	gameIn     GameInput
 
 	// audio
 	hwo        uintptr
@@ -811,8 +813,30 @@ func (a *App) frame() {
 		a.rateT -= dt * 0.5
 	}
 	a.rateT = math.Min(1.8, math.Max(0.4, a.rateT))
+	if a.game != nil {
+		a.rateT = 1
+		in := a.gameIn
+		a.gameIn = GameInput{}
+		if !a.menu {
+			if a.keys['A'] || a.keys[0x25] {
+				in.DX--
+			}
+			if a.keys['D'] || a.keys[0x27] {
+				in.DX++
+			}
+			if a.keys['W'] || a.keys[0x26] {
+				in.DY++
+			}
+			if a.keys['S'] || a.keys[0x28] {
+				in.DY--
+			}
+		}
+		a.game.Update(dt, in)
+		a.sc = a.game.Sc
+		dir = 0
+	}
 	a.eng.SetRate(a.rateT)
-	if a.mouseSeen && !a.menu && a.cw > 0 && a.ch > 0 {
+	if a.game == nil && a.mouseSeen && !a.menu && a.cw > 0 && a.ch > 0 {
 		a.pl.YawT = (a.mx/float32(a.cw) - 0.5) * 2 * 1.15
 		a.pl.PitchT = (0.5-a.my/float32(a.ch))*2*0.5 + 0.02
 	}
@@ -820,7 +844,7 @@ func (a *App) frame() {
 	for len(a.pl.Rings) > 0 && now-a.pl.Rings[0].T0 > 2.5 {
 		a.pl.Rings = a.pl.Rings[1:]
 	}
-	if a.remixAt > 0 && now >= a.remixAt {
+	if a.remixAt > 0 && now >= a.remixAt && a.game == nil {
 		a.remixAt = 0
 		a.remix(a.sc.Seed)
 	}
@@ -828,9 +852,12 @@ func (a *App) frame() {
 		return
 	}
 	pos := a.playPos(dt)
-	beat := a.eng.SrcAt(pos) / a.sc.Song.SPB
+	beat := a.eng.BeatAt(pos)
 	a.frameN++
 	fr := MakeFrame(a.sc, &a.pl, beat, now, now-a.sceneStart, a.frameN)
+	if a.game != nil {
+		fr = a.game.MakeFrame(beat, now, a.frameN)
+	}
 	w, h := a.renderSize()
 	a.ensureSurface(w, h)
 	a.fx = a.st.FX()
@@ -882,10 +909,16 @@ func (a *App) hud(now, beat float64) {
 	W, H := a.iw, a.ih
 	s := func(v int) int { return v * H / 600 }
 	age := now - a.sceneStart
-	if age < 3.5 && (age < 2 || int(age*4)%2 == 0) {
+	if a.game != nil {
+		a.gameHUD()
+		age = 1e9
+	} else if age < 3.5 && (age < 2 || int(age*4)%2 == 0) {
 		a.textS(a.fBig, s(28), s(22), 0xFFFFFF, 0, "▶ PLAY")
 	}
 	t := int(math.Max(beat, 0) * 60 / a.sc.Song.BPM)
+	if a.game != nil {
+		t = int(a.game.T)
+	}
 	a.textS(a.fMed, W-s(28), s(26), 0xFFFFFF, 2, fmt.Sprintf("SP  %d:%02d:%02d", t/3600, t/60%60, t%60))
 	y := s(52)
 	if a.mute {
@@ -926,12 +959,13 @@ func (a *App) hud(now, beat float64) {
 	if a.help && a.helpAuto && now > 14 {
 		a.help = false
 	}
-	if a.help && !a.menu {
+	if a.help && !a.menu && a.game == nil {
 		lines := []string{
 			"TAB  new scene + new track     SPACE  vaporwave <-> space travel",
 			"W/S  tape speed (music + travel)     A/D  strafe",
 			"MOUSE  look     CLICK  pulse + chime     WHEEL  altitude",
 			"RIGHT CLICK  recolour    R  reset    M  mute    P  screenshot",
+			"ENTER  game mode: fly a ship through rings with WASD",
 			"O  settings    G  GPU/CPU    F2  FPS counter    F  fullscreen",
 			"H  hide this     ESC  quit",
 		}
@@ -946,6 +980,72 @@ func (a *App) hud(now, beat float64) {
 	}
 	if a.menu {
 		a.drawMenu()
+	}
+}
+
+// ---- game mode ------------------------------------------------------------------
+
+func (a *App) toggleGame() {
+	if a.game != nil {
+		a.game = nil
+		a.eng.ClearLoop()
+		a.newScene()
+		a.setToast("Game over — back to the endless drive")
+		return
+	}
+	a.space = false
+	a.help = false
+	if a.menu {
+		a.toggleMenu()
+	}
+	a.game = NewGame(a.eng, a.rng.Uint32(), a.st.Style-1, a.st.Mood)
+	a.sc = a.game.Sc
+	a.sceneStart = a.now()
+	a.setTitle()
+}
+
+func (a *App) gameHUD() {
+	g := a.game
+	W, H := a.iw, a.ih
+	s := func(v int) int { return v * H / 600 }
+	label := PhaseNames[g.Phase]
+	if g.Phase == PhaseChill {
+		label += fmt.Sprintf("  %d", g.ChillLeft())
+	}
+	a.textS(a.fBig, s(28), s(20), 0xFFFFFF, 0, label)
+	bpm := a.eng.Tempo()
+	y := s(58)
+	if g.Phase == PhaseFlight {
+		n := int(clampF((bpm-60)/(BoomBPM-60), 0, 1) * 20)
+		bar := strings.Repeat("■", n) + strings.Repeat("□", 20-n)
+		col := uint32(0xFFFFC0)
+		if bpm > 220 {
+			col = 0x6060FF
+		}
+		a.textS(a.fMed, s(28), y, col, 0, fmt.Sprintf("%3.0f BPM  %s  %d", bpm, bar, BoomBPM))
+		y += s(24)
+		a.textS(a.fSmall, s(30), y, 0xFFE0FF, 0, fmt.Sprintf("RINGS %d   ·   %s", g.Hits, StyleNames[g.Opts.Style]))
+	} else {
+		a.textS(a.fMed, s(28), y, 0xFFFFC0, 0, fmt.Sprintf("%3.0f BPM", bpm))
+		y += s(24)
+		if g.Phase == PhaseCreate {
+			a.textS(a.fSmall, s(30), y, 0xFFE0FF, 0, fmt.Sprintf("NOTES %d   ·   RINGS %d   ·   %s", g.Notes, g.createHits, StyleNames[g.Opts.Style]))
+		}
+	}
+	if g.Toast != "" && g.T-g.ToastT < 4 {
+		a.textS(a.fMed, W/2, H-s(110), 0xFFFFFF, 6, g.Toast)
+	}
+	if g.PhaseT < 9 {
+		var hint string
+		switch g.Phase {
+		case PhaseFlight:
+			hint = "WASD fly  ·  every ring changes the world and the music  ·  ENTER quit game"
+		case PhaseChill:
+			hint = "breathe"
+		case PhaseCreate:
+			hint = "WASD play notes  ·  SPACE drums in/out  ·  CLICK new chords  ·  WHEEL tempo  ·  BACKSPACE clear"
+		}
+		a.textS(a.fSmall, W/2, H-s(70), 0xD0F0FF, 6, hint)
 	}
 }
 
@@ -979,6 +1079,8 @@ func (a *App) buildMenu() {
 		}}
 	}
 	a.items = []menuItem{
+		{label: "GAME", header: true},
+		{label: "Game mode (Enter)", val: func() string { return onOff(a.game != nil) }, adj: func(d int) { a.toggleGame() }},
 		{label: "MUSIC  (changes remix the current track)", header: true},
 		music("Style", &st.Style, append([]string{"Auto (random per scene)"}, StyleNames...)),
 		music("Drums", &st.DrumLevel, DrumNames),
@@ -1236,6 +1338,34 @@ func (a *App) keyPress(vk uintptr) {
 			return
 		}
 	}
+	if vk == 0x0D { // Enter: start / stop the game
+		a.toggleGame()
+		return
+	}
+	if a.game != nil {
+		switch vk {
+		case 'W', 0x26:
+			a.gameIn.Pressed = append(a.gameIn.Pressed, DirUp)
+			return
+		case 'S', 0x28:
+			a.gameIn.Pressed = append(a.gameIn.Pressed, DirDown)
+			return
+		case 'A', 0x25:
+			a.gameIn.Pressed = append(a.gameIn.Pressed, DirLeft)
+			return
+		case 'D', 0x27:
+			a.gameIn.Pressed = append(a.gameIn.Pressed, DirRight)
+			return
+		case 0x20:
+			a.gameIn.Space = true
+			return
+		case 0x08:
+			a.gameIn.Clear = true
+			return
+		case 0x09, 'R':
+			return
+		}
+	}
 	switch vk {
 	case 0x09: // Tab
 		a.newScene()
@@ -1331,6 +1461,10 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		k := float32(a.iw) / float32(a.cw)
 		px, pz := a.rd.Pick(float32(x)*k, float32(y)*k)
+		if a.game != nil {
+			a.gameIn.Click, a.gameIn.ClickX, a.gameIn.ClickZ = true, px, pz
+			return 0
+		}
 		if len(a.pl.Rings) < 6 {
 			a.pl.Rings = append(a.pl.Rings, Ring{px, pz, a.now()})
 		}
@@ -1344,6 +1478,10 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 			} else {
 				a.moveSel(1)
 			}
+			return 0
+		}
+		if a.game != nil {
+			a.gameIn.Wheel += d
 			return 0
 		}
 		a.pl.H = clampf(a.pl.H+d*0.4, 0.8, 14)
@@ -1376,7 +1514,7 @@ func (a *App) selftestStep() {
 			r = "GPU"
 		}
 		a.logf("frame %d: %s %dx%d fps %.0f playpos %.0f beat %.2f scene %s", n, r, a.iw, a.ih, a.fps, a.posEst,
-			a.eng.SrcAt(a.posEst)/a.sc.Song.SPB, a.sc.Name)
+			a.eng.BeatAt(a.posEst), a.sc.Name)
 	}
 	shot := func(name string) { a.shotPath = filepath.Join(exeDir(), name) }
 	switch n {
@@ -1411,6 +1549,15 @@ func (a *App) selftestStep() {
 	case 170:
 		shot(filePrefix + "_selftest4_cpu.png")
 	case 180:
+		a.toggleGame()
+		a.logf("game started: %s, %.0f BPM", a.game.Sc.Name, a.eng.Tempo())
+	case 185, 190, 195, 200:
+		a.gameIn.Pressed = append(a.gameIn.Pressed, DirUp)
+	case 230:
+		shot(filePrefix + "_selftest5_game.png")
+		a.logf("game: phase %d dist %.0f rings %d hits %d", a.game.Phase, a.game.Dist, len(a.game.Rings), a.game.Hits)
+	case 240:
+		a.toggleGame()
 		a.logf("done")
 		pDestroyWindow.Call(a.hwnd)
 	}

@@ -35,10 +35,15 @@ func main() {
 	mtempo := flag.Int("tempo", 1, "tempo 0 slower, 1 normal, 2 faster")
 	mmood := flag.Int("mood", 0, "mood 0 auto, 1 major, 2 minor")
 	mmel := flag.Int("melody", 2, "melody density 0-3")
+	gameSim := flag.Bool("game", false, "simulate a full game with an autopilot")
 	vhs := flag.Int("vhs", 2, "VHS effects level 0-2")
 	bloom := flag.Int("bloom", 100, "bloom percent")
 	flag.Parse()
 	CurrentSongOpts = SongOpts{Style: *mstyle, Drums: *mdrums, Tempo: *mtempo, Mood: *mmood, Melody: *mmel}
+	if *gameSim {
+		runGameSim(*out, uint32(*seed), *mstyle, *W, *H, nil)
+		return
+	}
 	os.MkdirAll(*out, 0o755)
 	rd := &Rd{}
 	var gl *GLR

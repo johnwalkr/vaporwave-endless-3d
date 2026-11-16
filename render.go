@@ -71,6 +71,9 @@ func (rd *Rd) geometry() {
 		rd.warp()
 	}
 	rd.props()
+	if rd.fr.Game != nil {
+		rd.drawGame(rd.fr.Game)
+	}
 }
 
 func (rd *Rd) setup(sc *Scene, fr *Frame, W, H int, gpu bool) {
@@ -81,6 +84,9 @@ func (rd *Rd) setup(sc *Scene, fr *Frame, W, H int, gpu bool) {
 	}
 	rd.sc, rd.fr = sc, fr
 	rd.camZ = fr.Beat * float64(sc.U)
+	if fr.UseCamZ {
+		rd.camZ = fr.CamZ
+	}
 	period := float64(sc.G) * 128
 	rd.zBase = math.Floor(rd.camZ/period) * period
 	rd.zCell = int32(int64(rd.zBase/float64(sc.G)) & 0xFFFFFF)

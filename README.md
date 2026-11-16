@@ -10,6 +10,7 @@ It is a single ~2.5 MB `.exe` with no installer, no runtime and no external asse
 
 | Input | Effect |
 |---|---|
+| Enter | **Game mode** (see below) |
 | Tab | New scene + new track |
 | Space | Switch between vaporwave and space travel |
 | W / S (or ↑ / ↓) | Tape speed: music and travel slow down or speed up together |
@@ -26,6 +27,20 @@ It is a single ~2.5 MB `.exe` with no installer, no runtime and no external asse
 | Esc | Quit |
 
 Command-line options: `-cpu` forces the software renderer, and `-selftest` runs a short automated pass that writes `vaporwave-endless-3d_selftest.txt` and screenshots next to the exe.
+
+### Game mode (Enter)
+
+You fly a spacecraft (WASD or arrow keys) through neon rings. There is no objective, score to beat or boss.
+
+1. **Flight.** Every ring you pass makes one small change to the world (colours, the sun, the floor, props, gates) and pushes the tempo up. Along the way the drums and melody build up and the style shifts. The tempo also creeps upward on its own, so things get more intense whether or not you hit rings.
+2. **Boom.** When the music reaches 250 BPM, everything explodes.
+3. **Chill.** 30 seconds of calm, floating in a nebula.
+4. **Create.** From now on, every action makes music and changes the level:
+   - **WASD** each play a note (W/S jump up/down, A/D step) that is quantised to the beat and recorded into a two-bar loop, and leave a glowing crystal in the world.
+   - **Rings** add drums, switch style and, every fourth ring, move you to a new world.
+   - **Click** for new chords and colours, **Space** to drop the drums in or out, **mouse wheel** for tempo, **Backspace** to clear your loop.
+
+Press Enter again to leave the game.
 
 ### Music settings (in the settings menu)
 
@@ -87,6 +102,7 @@ Vaporwave Endless 3D was written in Go with Claude (Anthropic's AI model) in a s
 | `synth.go` | The synthesizer: detuned PolyBLEP saw pads (optionally chopped), FM Rhodes, plucks and bells, four bass instruments (sub, upright, filtered saw, slap), double-tracked distorted guitar, mono leads (saw, sine, sax, overdriven guitar, square pluck), three kicks, four snares (incl. brushes and gated reverb), clap, hats, ride and crash from an inharmonic oscillator bank, ping-pong delay, Freeverb-style reverb, tape hiss and vinyl crackle, sidechain ducking. `Engine` handles variable-speed playback, wow/flutter, cross-fades between songs, and the sample→beat map. |
 | `settings.go` | Saved settings, audio presets, the mix model and post-processing (FX) settings. |
 | `scene.go` | Vaporwave scene generator: 10 base palettes with hue variation, 4 floor types, sun/moon/stars, skyline backdrops, prop avenues, neon gates. Also the player and per-frame state. |
+| `game.go`, `game_draw.go` | Game mode: flight, rings, the 250 BPM explosion, the chill phase and create mode; the ship, rings, debris and note crystals. |
 | `space.go` | Space-travel mode: deep space, black holes (accretion disc, swallow, wormhole), all eight solar-system planets and eight original worlds, plus rocks, pines, ice spikes and towers. |
 | `raster.go` | Software rasterizer: triangles and antialiased lines recorded as a display list, then drawn in parallel row bands; HDR framebuffer; bloom, chromatic aberration, scanlines, tracking bar, grain and VHS glitches. In GPU mode the same code records vertices instead. |
 | `render.go` | Camera, per-pixel sky and floor shading (grid, checkerboard, water reflections, valley), backdrops, terrain. |

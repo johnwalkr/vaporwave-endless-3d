@@ -118,13 +118,24 @@ type Synth struct {
 	mLP2     [2]float64
 	pop      float64
 	chime    int
+
+	// tempo is clocked in beats so it can glide (game mode)
+	bpm, bpmT float64
+	beat      float64
+	// user-played notes, quantised to the next 16th and looped
+	loop    *[32]int8
+	pending []int
+	// explosion
+	boomT          int
+	boomPh, boomLP float64
 }
 
 func NewSynth(s *Song) *Synth {
-	y := &Synth{s: s, rng: s.Seed | 1, kT: -1, sT: -1, hT: -1, rT: -1, cT: -1, clT: -1, padGate: 1, padGateT: 1}
-	y.stepLen = s.SPB / 4
+	y := &Synth{s: s, rng: s.Seed | 1, kT: -1, sT: -1, hT: -1, rT: -1, cT: -1, clT: -1, padGate: 1, padGateT: 1, boomT: -1}
+	y.bpm, y.bpmT = s.BPM, s.BPM
+	y.stepLen = SR * 60 / y.bpm / 4
 	y.duckMul = math.Exp(-1 / (0.22 * SR))
-	dl := int(y.stepLen * 3)
+	dl := int(SR*60/40/4*3) + 2 // room for 3 sixteenths down to 40 BPM
 	y.dlL = make([]float64, dl)
 	y.dlR = make([]float64, dl)
 	cl := []int{1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617}
@@ -257,6 +268,18 @@ func (y *Synth) trigger(abs int) {
 			y.lGate, y.lAge = dur, 0
 		}
 	}
+	if y.loop != nil {
+		li := abs % 32
+		for _, m := range y.pending {
+			y.loop[li] = int8(m)
+		}
+		y.pending = y.pending[:0]
+		if m := y.loop[li]; m > 0 {
+			pan := clampF(0.15+float64(int(m)%24)/28, 0.1, 0.9)
+			y.fmOn(float64(m), 0.17, pan, 1, 2.0, 0.35, 1.3, int(y.stepLen*3), 0.5, 0.6, 1)
+			y.fmOn(float64(m)+12.05, 0.04, 1-pan, 3, 1.0, 0.1, 0.4, int(y.stepLen*2), 0.3, 0.6, 1)
+		}
+	}
 }
 
 func polyblep(t, dt float64) float64 {
@@ -312,11 +335,13 @@ func (y *Synth) metal(base float64) float64 {
 
 func (y *Synth) next(m *Mix) (float64, float64) {
 	s := y.s
-	for float64(y.n) >= y.stepAt {
+	y.bpm += (y.bpmT - y.bpm) * 0.00003
+	y.stepLen = SR * 60 / y.bpm / 4
+	for y.beat*4 >= float64(y.step)+s.StepOffset(y.step%16) {
 		y.trigger(y.step)
 		y.step++
-		y.stepAt = (float64(y.step) + s.StepOffset(y.step%16)) * y.stepLen
 	}
+	y.beat += y.bpm / (60 * SR)
 	if y.chime > 0 {
 		y.chime--
 		var buf [6]int
@@ -507,6 +532,25 @@ func (y *Synth) next(m *Mix) (float64, float64) {
 			if t > 2.5 {
 				y.cT = -1
 			}
+		}
+	}
+
+	// --- explosion: sub drop + roaring noise
+	if y.boomT >= 0 {
+		t := float64(y.boomT) / SR
+		f := 24 + 110*math.Exp(-t*2.5)
+		y.boomPh += f / SR
+		y.boomLP += (nz - y.boomLP) * (0.02 + 0.3*math.Exp(-t*3))
+		e := math.Exp(-t*0.9) * math.Min(1, t*200)
+		v := (math.Sin(tau*y.boomPh)*0.9 + y.boomLP*2.2) * e * 0.8
+		L += v
+		R += v * 0.95
+		rL += v * 0.8
+		rR += v * 0.8
+		y.duck = 1
+		y.boomT++
+		if t > 6 {
+			y.boomT = -1
 		}
 	}
 
@@ -709,7 +753,13 @@ func (y *Synth) next(m *Mix) (float64, float64) {
 	}
 
 	// --- ping-pong delay
-	dl, drr := y.dlL[y.dpos], y.dlR[y.dpos]
+	nd := len(y.dlL)
+	dlen := min(max(int(y.stepLen*3), 1), nd-1)
+	ri := y.dpos - dlen
+	if ri < 0 {
+		ri += nd
+	}
+	dl, drr := y.dlL[ri], y.dlR[ri]
 	y.dfL += (drr - y.dfL) * 0.35
 	y.dfR += (dl - y.dfR) * 0.35
 	y.dlL[y.dpos] = dS*m.Echo + y.dfL*0.42
@@ -766,6 +816,7 @@ func (y *Synth) next(m *Mix) (float64, float64) {
 type checkpoint struct {
 	out0       int64
 	src0, src1 float64
+	b0, b1     float64
 	n          int
 	gen        int
 }
@@ -790,6 +841,7 @@ type Engine struct {
 	mute      bool
 	vol       float64
 	mix       Mix
+	loop      [32]int8
 }
 
 func NewEngine() *Engine { return &Engine{rate: 1, rateT: 1, vol: 1, mix: DefaultMix()} }
@@ -803,6 +855,7 @@ func (e *Engine) NewSong(s *Song) {
 	e.mu.Lock()
 	e.old, e.fade = e.cur, 1
 	e.cur = NewSynth(s)
+	e.cur.loop = &e.loop
 	e.gen++
 	e.src, e.frac = 0, 0
 	e.mu.Unlock()
@@ -825,6 +878,9 @@ func (e *Engine) Fill(out []int16) {
 	defer e.mu.Unlock()
 	n := len(out) / 2
 	cp := checkpoint{out0: e.outTotal, src0: e.src + e.frac, n: n, gen: e.gen}
+	if e.cur != nil {
+		cp.b0 = e.cur.beat
+	}
 	vt := e.mix.Master
 	if e.mute {
 		vt = 0
@@ -861,6 +917,10 @@ func (e *Engine) Fill(out []int16) {
 		out[2*i+1] = int16(clampF(rr, -1, 1) * 30000)
 	}
 	cp.src1 = e.src + e.frac
+	cp.b1 = cp.b0
+	if e.cur != nil {
+		cp.b1 = e.cur.beat
+	}
 	e.outTotal += int64(n)
 	e.cps[e.cpN%len(e.cps)] = cp
 	e.cpN++
@@ -890,3 +950,76 @@ func (e *Engine) SrcAt(outPos float64) float64 {
 
 // OutTotal is the number of output frames generated so far.
 func (e *Engine) OutTotal() int64 { e.mu.Lock(); defer e.mu.Unlock(); return e.outTotal }
+
+// ---- game-mode controls -------------------------------------------------------
+
+// SetTempo glides the current song to a new tempo (about 0.75 s).
+func (e *Engine) SetTempo(bpm float64) {
+	e.mu.Lock()
+	if e.cur != nil {
+		e.cur.bpmT = clampF(bpm, 40, 300)
+	}
+	e.mu.Unlock()
+}
+
+// Tempo is the tempo actually playing right now.
+func (e *Engine) Tempo() float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.cur == nil {
+		return 0
+	}
+	return e.cur.bpm
+}
+
+// SwapSong replaces the patterns without restarting: the beat clock, the
+// tempo, sounding voices and the user loop all carry on.
+func (e *Engine) SwapSong(s *Song) {
+	e.mu.Lock()
+	if e.cur != nil {
+		e.cur.s = s
+	}
+	e.mu.Unlock()
+}
+
+// Boom plays the explosion.
+func (e *Engine) Boom() {
+	e.mu.Lock()
+	if e.cur != nil {
+		e.cur.boomT, e.cur.cT, e.cur.cV = 0, 0, 1.4
+	}
+	e.mu.Unlock()
+}
+
+// PlayNote plays a MIDI note on the next 16th and records it into the loop.
+func (e *Engine) PlayNote(m int) {
+	e.mu.Lock()
+	if e.cur != nil && len(e.cur.pending) < 4 {
+		e.cur.pending = append(e.cur.pending, m)
+	}
+	e.mu.Unlock()
+}
+
+// ClearLoop forgets every note the player has recorded.
+func (e *Engine) ClearLoop() { e.mu.Lock(); e.loop = [32]int8{}; e.mu.Unlock() }
+
+// BeatAt maps an output frame position to the song's beat position.
+func (e *Engine) BeatAt(outPos float64) float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var first *checkpoint
+	for k := 1; k <= len(e.cps) && k <= e.cpN; k++ {
+		c := &e.cps[(e.cpN-k)%len(e.cps)]
+		if c.gen != e.gen {
+			break
+		}
+		first = c
+		if outPos >= float64(c.out0) {
+			return c.b0 + (outPos-float64(c.out0))*(c.b1-c.b0)/float64(c.n)
+		}
+	}
+	if first != nil && e.cur != nil {
+		return first.b0 - (float64(first.out0)-outPos)*e.rate*e.cur.bpm/(60*SR)
+	}
+	return -0.12
+}

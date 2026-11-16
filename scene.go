@@ -315,6 +315,9 @@ func (p *Player) Update(dt float32, dir float32, sc *Scene) {
 
 // Frame is the full description of one rendered image.
 type Frame struct {
+	UseCamZ           bool // game mode: camera z comes from CamZ, not the beat
+	CamZ              float64
+	Game              *Game
 	Time, Beat        float64
 	Kick, Snare, Hat  float32
 	Melody            float32
