@@ -134,6 +134,10 @@ Build flags:
 
 Requirements at runtime: Windows 7 or newer, 64-bit. GPU mode needs an OpenGL 3.3 driver (any GPU from about 2010 onward); without one, the program falls back to the CPU renderer.
 
+### Automatic builds
+
+Every push to GitHub builds the Windows exe with GitHub Actions (`.github/workflows/build.yml`). To download it, open the repository's **Actions** tab, click the latest run, and get `vaporwave-endless-3d-windows` under **Artifacts**.
+
 ### Running the test harness (Linux)
 
 ```sh

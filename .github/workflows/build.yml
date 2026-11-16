@@ -1,0 +1,27 @@
+name: Build Windows exe
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Vet (Windows target)
+        run: GOOS=windows GOARCH=amd64 go vet .
+
+      - name: Build vaporwave-endless-3d.exe
+        run: GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" -o vaporwave-endless-3d.exe .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vaporwave-endless-3d-windows
+          path: vaporwave-endless-3d.exe
