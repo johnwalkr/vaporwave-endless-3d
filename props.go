@@ -16,10 +16,13 @@ func (rd *Rd) props() {
 	sc := rd.sc
 	rowSp := float64(sc.U) * 2
 	nNear := int64(math.Floor(rd.camZ/rowSp)) - 1
+	if rd.fr.Eye != nil {
+		nNear -= int64(70 / rowSp) // in VR you can look behind you
+	}
 	nFar := nNear + int64(farDist/rowSp) + 1
 	kc := int32(math.Round(float64(rd.cam.Pos.X / sc.ColSp)))
 	gateSp := float64(sc.U) * float64(sc.GateBeats)
-	tanH := rd.cam.cx / rd.cam.f
+	tanH := max(rd.cam.cx, float32(rd.fb.W)-rd.cam.cx) / rd.cam.f
 	for n := nFar; n >= nNear; n-- {
 		zw := float64(n) * rowSp
 		// gates sit between this row and the next further one

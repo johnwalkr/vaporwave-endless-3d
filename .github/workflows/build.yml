@@ -1,13 +1,16 @@
-name: Build iOS app
+name: Build and publish Quest web app
 
 on:
   push:
-  pull_request:
+    branches: [quest]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -15,22 +18,21 @@ jobs:
         with:
           go-version: "1.24"
 
-      - name: Go checks (shaders in sync, iOS core)
+      - name: Go checks
         run: |
-          go vet .
-          go test -run 'TestMetalShaders|TestMobileFacade' -v .
+          go vet ./...
+          GOOS=js GOARCH=wasm go vet ./cmd/webxr
+          go test -run 'TestMobileFacade|TestMetalShaders' .
 
-      - name: Build Go core for iOS
-        run: ios/build-go.sh
+      - name: Build web app
+        run: web/build.sh
 
-      - name: Generate Xcode project
-        run: |
-          brew install xcodegen
-          cd ios && xcodegen generate
-
-      - name: Build app for the simulator (unsigned)
-        run: |
-          cd ios
-          xcodebuild -project VaporwaveEndless3D.xcodeproj -target VaporwaveEndless3D \
-            -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -60
-          test ${PIPESTATUS[0]} -eq 0
+      - name: Publish to the gh-pages branch (GitHub Pages)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: web/dist
+          force_orphan: true
+          user_name: github-actions[bot]
+          user_email: 41898299+github-actions[bot]@users.noreply.github.com
+          commit_message: "Publish Quest web app"

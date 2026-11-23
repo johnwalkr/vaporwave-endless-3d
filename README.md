@@ -1,3 +1,50 @@
+# Vaporwave Endless 3D for Meta Quest (WebXR)
+
+> **This is the `quest` branch.** It holds the VR version for Meta Quest headsets. The Windows program is on `main` and the iPhone app on `ios`; they are maintained separately.
+
+Endless generated vaporwave and space-travel scenes in VR, each with its own procedurally synthesized soundtrack locked to the visuals. Stand in the scene and look around: the world streams past you on the beat.
+
+It runs in the **Meta Quest Browser** using WebXR, so there is nothing to install: open the page on the headset and press **Enter VR**. It also plays in any desktop browser with WebGL 2.
+
+**Play:** <https://johnwalkr.github.io/vaporwave-endless-3d/>
+
+## VR controls
+
+| Controller | Effect |
+|---|---|
+| Look around | Head tracking (you can look behind you too) |
+| Trigger | New scene + new track |
+| A or X | Switch between vaporwave and space travel |
+| B or Y | Recolour the current vaporwave scene |
+| Grip | Shockwave across the floor + a chime in key |
+| Thumbstick left / right | Slide sideways |
+| Thumbstick up / down | Tape speed: music and travel speed up or slow down together |
+
+Settings (music style, audio mix, render scale, bloom) are on the 2D page: press **Settings** before entering VR or after leaving it (press the Meta button and choose to exit). They are saved in the browser. VHS scanlines and grain are switched off in VR because noise that differs between your eyes is uncomfortable.
+
+If you are prone to motion sickness: the scene moves forward constantly. Pull the thumbstick down to slow the tape to 40%, and take breaks.
+
+Desktop browser controls: drag to look, click for a shockwave, double-click or Tab for a new scene, Space for space travel, C to recolour, W/S tape speed, A/D slide, O for settings.
+
+## How the Quest version works
+
+- `cmd/webxr`: the Go core (scenes, music, camera) compiled to WebAssembly. It exposes a small `ve3d` API to JavaScript; vertices, shader parameters and audio stay in Go memory and JavaScript reads them in place.
+- `render.go` `EyeView`: in VR each eye's tracked orientation, position and (asymmetric) field of view replace the scripted camera, and the geometry is prepared once per eye. A 1.6 m eye height is matched to the scene's normal camera height.
+- `webgl.go`: the OpenGL renderer's shaders converted to WebGL 2 (GLSL ES 3.00), so the headset draws sky, floor, bloom and tone exactly like the desktop GPU renderer.
+- `web/main.js`: WebGL 2 passes, the WebXR session and controllers, an AudioWorklet that plays the Go synth with about 120 ms of buffering (the visuals subtract that latency to stay on the beat), and the desktop fallback.
+- Testing: rendered in headless Chrome, including a fake stereo headset (`?eyetest`, optionally `&yaw=3.1&roll=0.3`) with lopsided fields of view to check that per-pixel shading and geometry line up in each eye.
+
+### Building
+
+```sh
+web/build.sh                       # needs Go 1.24+; writes web/dist
+cd web/dist && python3 -m http.server 8000   # then open http://localhost:8000
+```
+
+WebXR needs HTTPS (or localhost), so to try a local build on the headset use the published page or forward the port with `adb reverse tcp:8000 tcp:8000`. Every push to the `quest` branch builds the site with GitHub Actions and publishes it to the `gh-pages` branch, which GitHub Pages serves.
+
+---
+
 # Vaporwave Endless 3D for iPhone and iPad
 
 > **This is the `ios` branch.** It holds the native iOS app. The Windows program lives on the `main` branch; the two are maintained separately (see "Branches" below).

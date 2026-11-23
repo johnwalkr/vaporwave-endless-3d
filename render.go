@@ -55,6 +55,21 @@ func (rd *Rd) Render(sc *Scene, fr *Frame, W, H int, out []uint32) {
 
 // Prepare sets up camera and per-frame values and builds the GPU display
 // list (sky, floor and post-processing are then done in shaders).
+// EyeView is a tracked VR eye: orientation and position from the headset and
+// its (asymmetric) field of view. World axes: x right, y up, z forward.
+type EyeView struct {
+	R, U, F                V3      // right, up, forward
+	Pos                    V3      // metres, relative to the floor under the player
+	TanL, TanR, TanU, TanD float32 // tangents of the frustum half-angles
+}
+
+// EyeSize is the render size for an eye at width w: square pixels need the
+// height to follow the field of view.
+func EyeSize(e *EyeView, w int) (int, int) {
+	f := float32(w) / (e.TanL + e.TanR)
+	return w, max(16, int(f*(e.TanU+e.TanD)+0.5))
+}
+
 func (rd *Rd) Prepare(sc *Scene, fr *Frame, W, H int) {
 	rd.setup(sc, fr, W, H, true)
 	rd.geometry()
@@ -112,6 +127,16 @@ func (rd *Rd) setup(sc *Scene, fr *Frame, W, H int, gpu bool) {
 		}
 	}
 	rd.cam.Set(V3{fr.X, camY, rd.rz(rd.camZ)}, fr.Yaw, fr.Pitch_, fr.Roll, fov, W, H)
+	if e := fr.Eye; e != nil {
+		// metres -> scene units so that a 1.6 m eye height matches the scene's camera height
+		k := fr.H / 1.6
+		camY -= fr.H + bob
+		c := &rd.cam
+		c.Pos = V3{fr.X + e.Pos.X*k, camY + e.Pos.Y*k, rd.rz(rd.camZ) + e.Pos.Z*k}
+		c.R, c.U, c.F = e.R, e.U, e.F
+		c.f = float32(W) / (e.TanL + e.TanR)
+		c.cx, c.cy = e.TanL*c.f, e.TanU*c.f
+	}
 	rd.invFar = 1.0 / farDist
 	rd.invf = 1 / rd.cam.f
 	rd.pxAng = rd.invf

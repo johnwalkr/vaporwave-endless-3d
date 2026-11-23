@@ -329,6 +329,7 @@ type Frame struct {
 	Yaw, Pitch_, Roll float32
 	Rings             []Ring
 	N                 uint32
+	Eye               *EyeView // VR: a tracked eye replaces the scripted camera
 }
 
 func MakeFrame(sc *Scene, p *Player, beat, t, sceneAge float64, n uint32) Frame {

@@ -35,6 +35,7 @@ type Mobile struct {
 	items        []mobileItem
 	remixAt      float64
 	params       [nParams * 4]float32
+	fr           Frame
 	ui           [4]uint32
 	prepared     bool
 }
@@ -53,8 +54,10 @@ var MobileScaleSteps = []int{50, 67, 75, 100}
 func NewMobile(dir string) *Mobile {
 	m := &Mobile{st: DefaultSettings(), rng: rand.New(rand.NewSource(time.Now().UnixNano()))}
 	m.st.Scale = 67
-	m.settingsPath = filepath.Join(dir, "settings.ini")
-	_ = m.st.Load(m.settingsPath)
+	if dir != "" {
+		m.settingsPath = filepath.Join(dir, "settings.ini")
+		_ = m.st.Load(m.settingsPath)
+	}
 	m.fx = m.st.FX()
 	m.rd = &Rd{FX: &m.fx}
 	m.eng = NewEngine()
@@ -70,6 +73,9 @@ func (m *Mobile) say(s string) { m.toast, m.toastT = s, m.t }
 
 // Save writes the settings file.
 func (m *Mobile) Save() {
+	if m.settingsPath == "" {
+		return
+	}
 	m.st.Speed = int(math.Round(m.rateT * 100))
 	_ = m.st.Save(m.settingsPath)
 }
@@ -171,6 +177,13 @@ func (m *Mobile) Tap(x, y float32) {
 // Frame advances by dt seconds and prepares the render data. latency is the
 // audio output latency in seconds, so the visuals match what is heard.
 func (m *Mobile) Frame(dt, latency float64) {
+	m.Advance(dt, latency)
+	m.iw, m.ih = m.InternalSize()
+	m.PrepareView(nil, m.iw, m.ih)
+}
+
+// Advance moves time, the player and the music clock forward by dt seconds.
+func (m *Mobile) Advance(dt, latency float64) {
 	if dt > 0.1 {
 		dt = 0.1
 	}
@@ -187,7 +200,7 @@ func (m *Mobile) Frame(dt, latency float64) {
 		m.remixAt = 0
 		m.remix(m.sc.Seed)
 	}
-	// follow the audio clock: frames rendered minus what is still buffered
+	// follow the audio clock: samples rendered minus what is still buffered
 	m.posEst += dt * SR
 	target := float64(m.eng.OutTotal()) - latency*SR
 	if err := target - m.posEst; math.Abs(err) > 6000 {
@@ -195,14 +208,43 @@ func (m *Mobile) Frame(dt, latency float64) {
 	} else {
 		m.posEst += err * 0.05
 	}
-	beat := m.eng.BeatAt(m.posEst)
 	m.frameN++
 	m.fx = m.st.FX()
-	fr := MakeFrame(m.sc, &m.pl, beat, m.t, m.t-m.sceneStart, m.frameN)
-	m.iw, m.ih = m.InternalSize()
-	m.rd.Prepare(m.sc, &fr, m.iw, m.ih)
+	m.fr = MakeFrame(m.sc, &m.pl, m.eng.BeatAt(m.posEst), m.t, m.t-m.sceneStart, m.frameN)
+}
+
+// PrepareView builds the render data for one view of the current frame: the
+// normal camera when eye is nil, otherwise a tracked VR eye.
+func (m *Mobile) PrepareView(eye *EyeView, w, h int) {
+	m.fr.Eye = eye
+	if eye != nil {
+		m.fx.Scan, m.fx.Grain, m.fx.CA, m.fx.Track = 0, 0, 0, 0 // per-eye VHS noise is uncomfortable
+	}
+	m.iw, m.ih = w, h
+	m.rd.Prepare(m.sc, &m.fr, w, h)
 	m.ui = m.rd.PackParams(m.params[:])
 	m.prepared = true
+}
+
+// SetScale sets the render scale in percent.
+func (m *Mobile) SetScale(p int) { m.st.Scale = clampI(p, 25, 100) }
+
+// Scale is the render scale in percent.
+func (m *Mobile) Scale() int { return m.st.Scale }
+
+// Settings text, for storing settings where there is no file system (browser).
+func (m *Mobile) SettingsText() string {
+	m.st.Speed = int(math.Round(m.rateT * 100))
+	return m.st.Text()
+}
+
+// LoadSettingsText applies settings saved with SettingsText.
+func (m *Mobile) LoadSettingsText(text string) {
+	m.st.ParseText(text)
+	m.fx = m.st.FX()
+	m.eng.SetMix(m.st.Mix())
+	m.rateT = float64(m.st.Speed) / 100
+	CurrentSongOpts = m.st.SongOpts()
 }
 
 // Params copies the sky/floor parameters (NParams float4s) into dst.

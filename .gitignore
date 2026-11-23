@@ -13,3 +13,4 @@ ios/Generated/
 ios/*.xcodeproj
 ios/Info.plist
 xcuserdata/
+web/dist/

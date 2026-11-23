@@ -1,22 +1,22 @@
-# Working on Vaporwave Endless 3D: `ios` branch
+# Working on Vaporwave Endless 3D: `quest` branch
 
-This branch is the native iOS app. The Windows program is on `main`; they are maintained separately.
+This branch is the Meta Quest (WebXR) version. The Windows program is on `main`, the iPhone app on `ios`; they are maintained separately.
 
 ## Git workflow (the owner's standing instruction)
 
 - **Always commit and push** every change when the work is done; don't wait to be asked.
-- iOS work is committed and pushed **directly to the `ios` branch**; Windows work goes directly to `main`. No pull requests.
+- Quest work is committed and pushed **directly to the `quest` branch** (iOS → `ios`, Windows → `main`). No pull requests.
 - Commit author email must be `johnwalkr@users.noreply.github.com`; GitHub rejects pushes that expose a private address.
+- Pushing to `quest` triggers GitHub Actions, which builds `web/dist` and publishes it to the `gh-pages` branch (GitHub Pages).
 
 ## Layout
 
-- Root `*.go`: the shared core as `package vaporwave` (on `main` it is `package main`). `mobile.go` is the iOS facade, `capi/` the C API built with `-buildmode=c-archive`.
-- `ios/`: Swift app, generated `Shaders.metal`, XcodeGen `project.yml`, `build-go.sh`, `setup.sh`.
+- Root `*.go`: shared core as `package vaporwave`. `mobile.go` is the app facade (used by iOS and the web), `render.go` `EyeView` is the VR camera, `webgl.go` converts the GL shaders to WebGL 2.
+- `cmd/webxr`: WebAssembly entry point (`GOOS=js GOARCH=wasm`). `web/`: index.html, main.js (WebGL 2 renderer, WebXR, audio worklet), build.sh.
+- `ios/`, `capi/`, `metalparams.go` come from the `ios` branch and are kept so merges stay simple.
 
 ## Building and checking
 
-- `go vet ./...` and `go test -run 'TestMetalShaders|TestMobileFacade' .` (fast). `go test .` runs everything (about 2 minutes).
-- `Shaders.metal` is generated from the GLSL in `gl.go`: after changing shaders run `UPDATE_SHADERS=1 go test -run TestMetalShaders .`
-- C API check on Linux: `go build -buildmode=c-archive -o /tmp/libve3d.a ./capi`.
-- Swift and Metal can't be compiled here; the GitHub Actions workflow builds the app for the simulator on macOS. Ask the owner to build in Xcode for anything that needs a device.
-- Linux harness: `go build -o ve3d_test ./cmd/ve3d-test && ./ve3d_test -h`; `-gpu` compares OpenGL with the CPU renderer.
+- `go vet ./...`, `GOOS=js GOARCH=wasm go vet ./cmd/webxr`, `go test -run 'TestMobileFacade|TestMetalShaders' .`
+- `web/build.sh`, then serve `web/dist` and load it in headless Chrome (`google-chrome --headless=new --use-angle=swiftshader --enable-unsafe-swiftshader`) through the DevTools protocol to read console errors and take screenshots. `?autostart` skips the start page; `?eyetest` renders a fake stereo headset.
+- WebXR itself can only be tested on the headset; ask the owner.

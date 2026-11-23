@@ -99,6 +99,11 @@ func (s *Settings) fields() []field {
 }
 
 func (s *Settings) Save(path string) error {
+	return os.WriteFile(path, []byte(s.Text()), 0o644)
+}
+
+// Text is the settings file contents.
+func (s *Settings) Text() string {
 	var b strings.Builder
 	b.WriteString("# Vaporwave Endless 3D settings (levels in percent)\n")
 	for _, f := range s.fields() {
@@ -111,17 +116,22 @@ func (s *Settings) Save(path string) error {
 			fmt.Fprintf(&b, "%s=%s\n", f.k, *p)
 		}
 	}
-	return os.WriteFile(path, []byte(b.String()), 0o644)
+	return b.String()
 }
 
 func (s *Settings) Load(path string) error {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	s.ParseText(string(data))
+	return nil
+}
+
+// ParseText reads settings in the format Text writes.
+func (s *Settings) ParseText(text string) {
 	m := map[string]string{}
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(strings.NewReader(text))
 	for sc.Scan() {
 		l := strings.TrimSpace(sc.Text())
 		if l == "" || l[0] == '#' {
@@ -148,7 +158,6 @@ func (s *Settings) Load(path string) error {
 		}
 	}
 	s.Clamp()
-	return nil
 }
 
 func clampF(x, a, b float64) float64 { return max(a, min(b, x)) }
